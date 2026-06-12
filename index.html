@@ -6,21 +6,31 @@
     <title>Manipal Uninav</title>
     <link rel="icon" type="image/png" href="image/weblogo.png" />
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
     <style>
         :root {
             --primary: #ff7e5f;
             --primary-hover: #feb47b;
         }
+        /* Bulletproof full-screen CSS */
         html, body {
             height: 100%;
+            width: 100%;
             margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevents mobile scroll bouncing */
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
+        
+        /* Force Map to stretch to corners */
         #map {
-            height: 100vh;
-            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1; /* Keeps map safely behind the UI */
             background: #dfe6e9;
             transition: background-color 0.5s ease;
         }
@@ -209,7 +219,6 @@
             outline: 2px solid white;
         }
 
-        /* ── rest of original styles ── */
         .travel-info-box {
             position: absolute;
             bottom: 70px;
@@ -419,8 +428,14 @@
         const lightUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
         const darkUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
-        const lightLayer = L.tileLayer(lightUrl, { maxZoom: 19, crossOrigin: true }).addTo(map);
-        const darkLayer = L.tileLayer(darkUrl, { maxZoom: 19, crossOrigin: true });
+        // Fix: Removed crossOrigin strictly to prevent mobile browsers from blocking tiles
+        const lightLayer = L.tileLayer(lightUrl, { maxZoom: 19 }).addTo(map);
+        const darkLayer = L.tileLayer(darkUrl, { maxZoom: 19 });
+
+        // Fix: Force the map to recalculate its dimensions after 200ms to cure the "grey screen" bug on load
+        setTimeout(() => {
+            map.invalidateSize();
+        }, 200);
 
         let isDark = false;
         function toggleDark() {
@@ -637,4 +652,97 @@
             cancelTrip();
             const fromInput = document.getElementById('from').value;
             const toInput = document.getElementById('to').value;
-            if (!fromInput || !toInput) return alert('
+            if (!fromInput || !toInput) return alert('Please enter both locations.');
+
+            const fromCoords = parseCoords(fromInput);
+            const toCoords = parseCoords(toInput);
+            if (!fromCoords || !toCoords) return alert('Invalid locations. Please select from the list or enter as "lat, lon".');
+
+            const mustUseSubway = campusOf(fromCoords) && campusOf(toCoords) && campusOf(fromCoords) !== campusOf(toCoords);
+
+            try {
+                const routeGeojson = await fetchRoute(fromCoords, toCoords, mustUseSubway);
+                routeLayer = L.geoJSON(routeGeojson, { style: { color: '#ff7e5f', weight: 6, opacity: 0.85 } }).addTo(map);
+
+                const bounds = routeLayer.getBounds();
+                if (bounds.isValid()) map.fitBounds(bounds.pad(0.15));
+
+                const summary = routeGeojson.features[0].properties.summary;
+                const travelInfoEl = document.getElementById('travelInfo');
+                travelInfoEl.innerHTML = `<b>Trip Info</b><br>Distance: ${(summary.distance / 1000).toFixed(2)} km<br>Est. time: ${Math.round(summary.duration / 60)} mins`;
+                travelInfoEl.style.display = 'block';
+                document.getElementById('cancelTripBtn').style.display = 'block';
+
+                fromMarker = L.marker(fromCoords, { icon: L.divIcon({ className: 'start-marker', html: '<div style="background:#ff7e5f;border-radius:50%;width:24px;height:24px;color:#fff;font-weight:700;display:flex;justify-content:center;align-items:center;">A</div>', iconSize: [24,24], iconAnchor: [12,12] }) }).addTo(map);
+                toMarker   = L.marker(toCoords,   { icon: L.divIcon({ className: 'end-marker',   html: '<div style="background:#ff7e5f;border-radius:50%;width:24px;height:24px;color:#fff;font-weight:700;display:flex;justify-content:center;align-items:center;">B</div>', iconSize: [24,24], iconAnchor: [12,12] }) }).addTo(map);
+
+                if (mustUseSubway) {
+                    subwayMarker = L.circleMarker(SUBWAY_COORDS, { radius: 8, color: '#2d3436', fillColor: '#fff', weight: 2 }).bindPopup('Subway (required transfer)').addTo(map);
+                    travelInfoEl.innerHTML += `<br><small style="font-weight:600;">Transfer via Subway required.</small>`;
+                }
+            } catch (e) {
+                alert('Routing failed: ' + e.message);
+            }
+        }
+
+        function useCurrentLocationAsFrom() {
+            if (!navigator.geolocation) return alert('Geolocation not supported.');
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const { latitude, longitude } = pos.coords;
+                document.getElementById('from').value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                map.setView([latitude, longitude], 17);
+            }, () => alert('Unable to fetch location. Check permissions.'));
+        }
+
+        function toggleLive() {
+            const btn = document.getElementById('liveToggle');
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                if (liveMarker) { map.removeLayer(liveMarker); map.removeLayer(liveAccuracyCircle); }
+                liveMarker = liveAccuracyCircle = null;
+                btn.textContent = 'Start Live Location';
+                btn.setAttribute('aria-pressed', 'false');
+            } else {
+                if (!navigator.geolocation) return alert('Geolocation not supported.');
+                btn.textContent = '...Tracking';
+                btn.setAttribute('aria-pressed', 'true');
+                watchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        const { latitude, longitude, accuracy } = pos.coords;
+                        if (!liveMarker) {
+                            liveMarker = L.circleMarker([latitude, longitude], { radius: 10, fillColor: '#ff7e5f', color: '#fff', weight: 2, fillOpacity: 0.9 }).addTo(map).bindPopup("You").openPopup();
+                            liveAccuracyCircle = L.circle([latitude, longitude], { radius: accuracy || 20, color: "#ff7e5f", fillOpacity: 0.1, weight: 1 }).addTo(map);
+                        } else {
+                            liveMarker.setLatLng([latitude, longitude]);
+                            liveAccuracyCircle.setLatLng([latitude, longitude]).setRadius(accuracy || 20);
+                        }
+                        map.setView([latitude, longitude], 17);
+                        btn.textContent = 'Stop Tracking';
+                    },
+                    () => { alert("Tracking error."); toggleLive(); },
+                    { enableHighAccuracy: true, timeout: 15000 }
+                );
+            }
+        }
+
+        function prefetchTiles() {
+            if (!navigator.serviceWorker?.controller) return alert('Service Worker inactive. Refresh page.');
+            const activeTemplate = isDark ? darkUrl : lightUrl;
+            navigator.serviceWorker.controller.postMessage({
+                type: 'PREFETCH_TILES',
+                bbox: [75.5595, 26.8385, 75.5715, 26.8485],
+                zooms: [15, 16, 17, 18],
+                tileUrlTemplate: activeTemplate
+            });
+        }
+
+        document.getElementById('goBtn').addEventListener('click', () => { closeDrawer(); navigate(); });
+        document.getElementById('useCurrentBtn').addEventListener('click', useCurrentLocationAsFrom);
+        document.getElementById('liveToggle').addEventListener('click', toggleLive);
+        document.getElementById('cancelTripBtn').addEventListener('click', cancelTrip);
+        document.getElementById('downloadOfflinebtn').addEventListener('click', prefetchTiles);
+        document.getElementById('darkModeBtn').addEventListener('click', toggleDark);
+    </script>
+</body>
+</html>
