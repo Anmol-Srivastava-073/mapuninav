@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#007bff">
+    <title>Manipal Uninav</title>
+    <link rel="icon" type="image/png" href="image/weblogo.png" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        :root {
+            --primary: #ff7e5f;
+            --primary-hover: #feb47b;
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+            background: #dfe6e9;
+            transition: background-color 0.5s ease;
+        }
+        .dark-mode #map { background: #2f3640; }
+
+        input:focus-visible, button:focus-visible {
+            outline: 3px solid #2980b9;
+            outline-offset: 2px;
+        }
+
+        .input-box {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1500;
+            background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            padding: 10px 14px;
+            display: flex;
+            gap: 10px;
+            max-width: 800px;
+            width: 90vw;
+            align-items: center;
+            color: white;
+            font-size: 15px;
+        }
+        .input-box input {
+            flex-grow: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            color: #333;
+        }
+        .input-box input::placeholder { color: #666; font-style: italic; }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-weight: 700;
+            cursor: pointer;
+            color: var(--primary);
+            transition: background-color 0.2s ease;
+            white-space: nowrap;
+            font-size: 13px;
+        }
+        .btn:hover { background-color: #fff4f1; }
+
+        /* ── DRAWER ── */
+        #places-drawer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 2000;
+            background: white;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -6px 30px rgba(0,0,0,0.18);
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 70vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #places-drawer.open { transform: translateY(0); }
+        .dark-mode #places-drawer { background: #2f3640; color: white; }
+
+        .drawer-handle {
+            width: 40px;
+            height: 4px;
+            background: #ccc;
+            border-radius: 4px;
+            margin: 12px auto 4px;
+            flex-shrink: 0;
+        }
+        .drawer-header {
+            padding: 8px 16px 10px;
+            flex-shrink: 0;
+        }
+        .drawer-header h3 {
+            margin: 0 0 8px;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .drawer-search {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1.5px solid #eee;
+            font-size: 14px;
+            color: #333;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .drawer-search:focus { border-color: var(--primary); }
+        .dark-mode .drawer-search { background: #3d4451; color: white; border-color: #555; }
+
+        .drawer-categories {
+            display: flex;
+            gap: 8px;
+            padding: 0 16px 10px;
+            overflow-x: auto;
+            flex-shrink: 0;
+            scrollbar-width: none;
+        }
+        .drawer-categories::-webkit-scrollbar { display: none; }
+        .cat-chip {
+            background: #f0f0f0;
+            border: none;
+            border-radius: 20px;
+            padding: 5px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            color: #555;
+            transition: background 0.2s, color 0.2s;
+        }
+        .cat-chip.active, .cat-chip:hover {
+            background: var(--primary);
+            color: white;
+        }
+        .dark-mode .cat-chip { background: #3d4451; color: #ccc; }
+        .dark-mode .cat-chip.active { background: var(--primary); color: white; }
+
+        .drawer-list {
+            overflow-y: auto;
+            flex: 1;
+            padding: 0 10px 20px;
+        }
+        .drawer-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.15s;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .drawer-item:hover { background: #fff4f1; }
+        .dark-mode .drawer-item:hover { background: #3d4451; }
+        .dark-mode .drawer-item { border-bottom-color: #3d4451; }
+        .place-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .place-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        .dark-mode .place-name { color: #eee; }
+        .place-category {
+            font-size: 11px;
+            color: #999;
+            margin-top: 2px;
+        }
+        .dark-mode .place-category { color: #aaa; }
+
+        .drawer-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 1999;
+            display: none;
+            backdrop-filter: blur(2px);
+        }
+        .drawer-overlay.visible { display: block; }
+
+        /* active input which triggered drawer */
+        input.drawer-active {
+            outline: 2px solid white;
+        }
+
+        /* ── rest of original styles ── */
+        .travel-info-box {
+            position: absolute;
+            bottom: 70px;
+            left: 18px;
+            z-index: 1500;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 14px 18px;
+            border-radius: 10px;
+            color: #333;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            font-weight: 600;
+            min-width: 180px;
+            font-size: 14px;
+            line-height: 1.4;
+            transition: background-color 0.5s ease, color 0.5s ease;
+            display: none;
+        }
+        .dark-mode .travel-info-box { background: rgba(47, 54, 64, 0.95); color: white; }
+
+        .live-toggle, .cancel-trip {
+            position: absolute;
+            bottom: 18px;
+            z-index: 1500;
+            border: none;
+            color: white;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background-color 0.25s ease;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .live-toggle {
+            right: 18px;
+            background: var(--primary);
+            box-shadow: 0 6px 20px rgba(255, 126, 95, 0.6);
+        }
+        .live-toggle:hover { background: var(--primary-hover); }
+        .cancel-trip {
+            left: 18px;
+            background: #d63031;
+            box-shadow: 0 6px 20px rgba(214, 48, 49, 0.6);
+            display: none;
+        }
+        .cancel-trip:hover { background: #ff7675; }
+
+        /* MOBILE CSS FIXES */
+        @media (max-width: 600px) {
+            .input-box {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                width: 95vw;
+                gap: 8px;
+                padding: 12px;
+                top: 15px;
+                border-radius: 14px;
+            }
+            .input-box input {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 10px 12px;
+            }
+            .btn {
+                width: 100%;
+                padding: 0 16px;
+            }
+            .top-controls {
+                top: auto;
+                bottom: 140px;
+                right: 15px;
+                flex-direction: column;
+            }
+            .mobile-button-container {
+                position: fixed;
+                bottom: 15px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 95%;
+                max-width: 400px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                z-index: 1500;
+            }
+            .live-toggle, .cancel-trip {
+                position: static;
+                width: 100%;
+                border-radius: 12px;
+                padding: 12px 0;
+                font-size: 14px;
+            }
+            .travel-info-box {
+                position: fixed;
+                bottom: 240px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 90%;
+                max-width: 380px;
+            }
+            #places-drawer {
+                max-height: 85vh;
+            }
+        }
+
+        .top-controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1500;
+        }
+        .control-btn {
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+        }
+        #downloadOfflinebtn { background: #4caf50; }
+        #darkModeBtn { background: var(--primary); }
+
+        #offline-popup {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-family: sans-serif;
+            display: none;
+            z-index: 9999;
+            width: 300px;
+        }
+        #offline-popup .title { margin-bottom: 6px; font-weight: bold; }
+        #offline-popup .progress-bar { background: #eee; height: 10px; border-radius: 5px; overflow: hidden; }
+        #offline-popup #offline-progress { background: #4caf50; height: 100%; width: 0%; transition: width 0.3s; }
+        #offline-popup #offline-status { margin-top: 6px; font-size: 12px; color: #666; text-align: right; }
+    </style>
+</head>
+<body>
+    <div id="map" aria-label="Campus Map"></div>
+
+    <div class="top-controls">
+        <button class="control-btn" id="darkModeBtn" title="Toggle Dark Mode">🌙</button>
+        <button class="control-btn" id="downloadOfflinebtn">📥 Offline</button>
+    </div>
+
+    <div class="input-box" role="search">
+        <input id="from" type="text" placeholder="From (or use 📍)" autocomplete="off" />
+        <button class="btn" id="useCurrentBtn" aria-label="Use current location">📍</button>
+        <input id="to" type="text" placeholder="To" autocomplete="off" />
+        <button class="btn" id="goBtn">Go ➜</button>
+    </div>
+
+    <div class="travel-info-box" id="travelInfo" aria-live="polite"></div>
+
+    <div class="mobile-button-container">
+        <button class="live-toggle" id="liveToggle" aria-pressed="false">Start Live Location</button>
+        <button class="cancel-trip" id="cancelTripBtn">Cancel Trip</button>
+    </div>
+
+    <div id="offline-popup">
+        <div class="title">Downloading area…</div>
+        <div class="progress-bar"><div id="offline-progress"></div></div>
+        <div id="offline-status">0%</div>
+    </div>
+
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+
+    <div id="places-drawer" role="dialog" aria-label="All places">
+        <div class="drawer-handle"></div>
+        <div class="drawer-header">
+            <h3>📍 All Places</h3>
+            <input class="drawer-search" id="drawerSearch" type="text" placeholder="Search places…" autocomplete="off" />
+        </div>
+        <div class="drawer-categories" id="drawerCategories"></div>
+        <div class="drawer-list" id="drawerList"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(err => console.error('SW failed:', err));
+            navigator.serviceWorker.addEventListener("message", (event) => {
+                const data = event.data || {};
+                const popupEl = document.getElementById("offline-popup");
+                if (data.type === 'PREFETCH_PROGRESS') {
+                    popupEl.style.display = "block";
+                    const pct = Math.round((data.done / data.total) * 100);
+                    document.getElementById("offline-progress").style.width = pct + "%";
+                    document.getElementById("offline-status").textContent = pct + "%";
+                }
+                if (data.type === 'PREFETCH_DONE') {
+                    document.getElementById("offline-status").textContent = "✅ Ready for offline use!";
+                    setTimeout(() => { popupEl.style.display = "none"; }, 2500);
+                }
+            });
+        }
+
+        const map = L.map('map').setView([26.8436, 75.565], 16);
+        const lightUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+        const darkUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+        const lightLayer = L.tileLayer(lightUrl, { maxZoom: 19, crossOrigin: true }).addTo(map);
+        const darkLayer = L.tileLayer(darkUrl, { maxZoom: 19, crossOrigin: true });
+
+        let isDark = false;
+        function toggleDark() {
+            if (!isDark) {
+                map.removeLayer(lightLayer);
+                map.addLayer(darkLayer);
+                document.body.classList.add('dark-mode');
+            } else {
+                map.removeLayer(darkLayer);
+                map.addLayer(lightLayer);
+                document.body.classList.remove('dark-mode');
+            }
+            isDark = !isDark;
+            document.getElementById('darkModeBtn').innerHTML = isDark ? '☀️' : '🌙';
+        }
+
+        const SUBWAY_COORDS = [26.842031, 75.563313];
+
+        // LANDMARKS with category and emoji
+        const LANDMARKS_DATA = {
+            "AB1 Block":                      { coords: [26.842586, 75.564249], category: "Academic",     icon: "🏫" },
+            "AB2 Block":                      { coords: [26.843117, 75.5661],   category: "Academic",     icon: "🏫" },
+            "AB3 Block":                      { coords: [26.84407,  75.564072], category: "Academic",     icon: "🏫" },
+            "Lecture Hall Complex/ AB4 Block":{ coords: [26.844338, 75.564705], category: "Academic",     icon: "🏫" },
+            "Central Library":                { coords: [26.841648, 75.565944], category: "Academic",     icon: "📚" },
+            "GHS Library":                    { coords: [26.840317, 75.561444], category: "Academic",     icon: "📚" },
+            "Administrative Block":           { coords: [26.841672, 75.565992], category: "Academic",     icon: "🏢" },
+            "AWS Building":                   { coords: [26.843797, 75.566947], category: "Academic",     icon: "🏢" },
+            "BlueDove Mess":                  { coords: [26.840432, 75.561798], category: "Food",         icon: "🍽️" },
+            "BluSpring(INDYA) Mess":          { coords: [26.841255, 75.561567], category: "Food",         icon: "🍽️" },
+            "Old Mess":                       { coords: [26.843112, 75.565209], category: "Food",         icon: "🍽️" },
+            "Saras Juice Corner":             { coords: [26.840758, 75.563485], category: "Food",         icon: "🥤" },
+            "Subway Wraps":                   { coords: [26.841445, 75.563090], category: "Food",         icon: "🥪" },
+            "Taste Of India":                 { coords: [26.841445, 75.563090], category: "Food",         icon: "🍛" },
+            "Chatkara":                       { coords: [26.841445, 75.563090], category: "Food",         icon: "🌮" },
+            "Waffle Shop":                    { coords: [26.841399, 75.562809], category: "Food",         icon: "🧇" },
+            "Cook House":                     { coords: [26.840952, 75.563493], category: "Food",         icon: "🍳" },
+            "Block G1":                       { coords: [26.840815, 75.563450], category: "Hostel",       icon: "🏠" },
+            "Block G2":                       { coords: [26.840642, 75.562629], category: "Hostel",       icon: "🏠" },
+            "Block G3":                       { coords: [26.840518, 75.562956], category: "Hostel",       icon: "🏠" },
+            "Block G4":                       { coords: [26.840587, 75.562146], category: "Hostel",       icon: "🏠" },
+            "Block B1":                       { coords: [26.841782, 75.562967], category: "Hostel",       icon: "🏠" },
+            "Block B2":                       { coords: [26.842045, 75.562189], category: "Hostel",       icon: "🏠" },
+            "Block B3":                       { coords: [26.841413, 75.562431], category: "Hostel",       icon: "🏠" },
+            "Block B5":                       { coords: [26.841729, 75.561921], category: "Hostel",       icon: "🏠" },
+            "Block B6":                       { coords: [26.842165, 75.561690], category: "Hostel",       icon: "🏠" },
+            "Block B7":                       { coords: [26.841859, 75.560896], category: "Hostel",       icon: "🏠" },
+            "Main Gate":                      { coords: [26.840729, 75.566325], category: "Gates",        icon: "🚪" },
+            "Gate 2":                         { coords: [26.841524, 75.563868], category: "Gates",        icon: "🚪" },
+            "Subway Entrance":                { coords: [26.842031, 75.563313], category: "Gates",        icon: "🚇" },
+            "Grand Stairs":                   { coords: [26.842507, 75.565467], category: "Landmarks",    icon: "🪜" },
+            "Jogger's Park":                  { coords: [26.840092, 75.563310], category: "Landmarks",    icon: "🌳" },
+            "G4 Badminton Court":             { coords: [26.840350, 75.562369], category: "Sports",       icon: "🏸" },
+            "Gym":                            { coords: [26.841210, 75.561594], category: "Sports",       icon: "💪" },
+            "Laundry":                        { coords: [26.840202, 75.561454], category: "Facilities",   icon: "👕" },
+            "Transformer":                    { coords: [26.841538, 75.560730], category: "Facilities",   icon: "⚡" },
+            "Chiller Panel Room":             { coords: [26.841275, 75.560800], category: "Facilities",   icon: "❄️" },
+        };
+
+        // Build flat LANDMARKS object for routing compatibility
+        const LANDMARKS = {};
+        Object.entries(LANDMARKS_DATA).forEach(([name, data]) => {
+            LANDMARKS[name] = data.coords;
+        });
+
+        // ── DRAWER LOGIC ──
+        const drawer = document.getElementById('places-drawer');
+        const overlay = document.getElementById('drawerOverlay');
+        const drawerList = document.getElementById('drawerList');
+        const drawerSearch = document.getElementById('drawerSearch');
+        const drawerCategories = document.getElementById('drawerCategories');
+
+        let activeInputId = null;
+        let activeCategory = 'All';
+
+        const categories = ['All', ...new Set(Object.values(LANDMARKS_DATA).map(d => d.category))];
+
+        // Build category chips
+        categories.forEach(cat => {
+            const btn = document.createElement('button');
+            btn.className = 'cat-chip' + (cat === 'All' ? ' active' : '');
+            btn.textContent = cat;
+            btn.addEventListener('click', () => {
+                activeCategory = cat;
+                document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                renderDrawerList(drawerSearch.value);
+            });
+            drawerCategories.appendChild(btn);
+        });
+
+        function renderDrawerList(query = '') {
+            drawerList.innerHTML = '';
+            const q = query.trim().toLowerCase();
+            Object.entries(LANDMARKS_DATA).forEach(([name, data]) => {
+                if (activeCategory !== 'All' && data.category !== activeCategory) return;
+                if (q && !name.toLowerCase().includes(q)) return;
+
+                const item = document.createElement('div');
+                item.className = 'drawer-item';
+                item.innerHTML = `
+                    <div class="place-icon">${data.icon}</div>
+                    <div>
+                        <div class="place-name">${name}</div>
+                        <div class="place-category">${data.category}</div>
+                    </div>`;
+                item.addEventListener('click', () => {
+                    if (activeInputId) {
+                        document.getElementById(activeInputId).value = name;
+                    }
+                    closeDrawer();
+                    // Pan map to location
+                    map.setView(data.coords, 18);
+                });
+                drawerList.appendChild(item);
+            });
+
+            if (!drawerList.children.length) {
+                drawerList.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa;">No places found</div>';
+            }
+        }
+
+        function openDrawer(inputId) {
+            activeInputId = inputId;
+            drawerSearch.value = document.getElementById(inputId).value;
+            renderDrawerList(drawerSearch.value);
+            drawer.classList.add('open');
+            overlay.classList.add('visible');
+            drawerSearch.focus();
+        }
+
+        function closeDrawer() {
+            drawer.classList.remove('open');
+            overlay.classList.remove('visible');
+            activeInputId = null;
+        }
+
+        drawerSearch.addEventListener('input', () => renderDrawerList(drawerSearch.value));
+        overlay.addEventListener('click', closeDrawer);
+
+        // Open drawer on focus of from/to inputs
+        ['from', 'to'].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('focus', () => openDrawer(id));
+            el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { closeDrawer(); navigate(); } });
+        });
+
+        // ── ROUTING ──
+        const HOSTEL_POLYGON = [[26.84337, 75.56231], [26.83925, 75.56459], [26.83862, 75.56178], [26.84262, 75.56036], [26.84337, 75.56231]];
+        const COLLEGE_POLYGON = [[26.84622, 75.56238], [26.83902, 75.56532], [26.84450, 75.56806], [26.84647, 75.56523], [26.84622, 75.56238]];
+
+        let routeLayer = null, fromMarker = null, toMarker = null, subwayMarker = null;
+        let watchId = null, liveMarker = null, liveAccuracyCircle = null;
+
+        function turfPoint(coords){ return { type: 'Feature', geometry: { type: 'Point', coordinates: coords } }; }
+        function turfPolygon(coords){ return { type: 'Feature', geometry: { type: 'Polygon', coordinates: coords } }; }
+
+        function turfBooleanPointInPolygon(pt, poly) {
+            const x = pt.geometry.coordinates[0], y = pt.geometry.coordinates[1];
+            const vs = poly.geometry.coordinates[0];
+            let inside = false;
+            for (let i = 0, j = vs.length - 1; i < vs.length; j = i, i++) {
+                const xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+                const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 0.0) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function campusOf([lat, lon]) {
+            if (!lat || !lon) return null;
+            const point = turfPoint([lon, lat]);
+            if (turfBooleanPointInPolygon(point, turfPolygon([HOSTEL_POLYGON.map(c => [c[1], c[0]])]))) return 'hostel';
+            if (turfBooleanPointInPolygon(point, turfPolygon([COLLEGE_POLYGON.map(c => [c[1], c[0]])]))) return 'college';
+            return null;
+        }
+
+        function parseCoords(loc) {
+            loc = loc.trim();
+            if (LANDMARKS[loc]) return LANDMARKS[loc];
+            const match = loc.match(/^\s*([+-]?\d+(\.\d+)?)\s*,\s*([+-]?\d+(\.\d+)?)\s*$/);
+            if (match) return [parseFloat(match[1]), parseFloat(match[3])];
+            return null;
+        }
+
+        function cancelTrip() {
+            if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+            if (fromMarker) { map.removeLayer(fromMarker); fromMarker = null; }
+            if (toMarker) { map.removeLayer(toMarker); toMarker = null; }
+            if (subwayMarker) { map.removeLayer(subwayMarker); subwayMarker = null; }
+            document.getElementById('travelInfo').style.display = 'none';
+            document.getElementById('cancelTripBtn').style.display = 'none';
+        }
+
+        async function fetchRoute(start, end, useSubway = false) {
+            const coords = [[start[1], start[0]]];
+            if (useSubway) coords.push([SUBWAY_COORDS[1], SUBWAY_COORDS[0]]);
+            coords.push([end[1], end[0]]);
+
+            const res = await fetch('/api/directions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ coordinates: coords }),
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || res.statusText);
+            }
+            return res.json();
+        }
+
+        async function navigate() {
+            cancelTrip();
+            const fromInput = document.getElementById('from').value;
+            const toInput = document.getElementById('to').value;
+            if (!fromInput || !toInput) return alert('
